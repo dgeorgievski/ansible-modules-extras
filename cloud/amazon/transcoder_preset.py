@@ -15,6 +15,7 @@
 # along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 DOCUMENTATION = '''
+---
 module: transcoder_preset
 short_description: Manage AWS ElasticTranscoder presets
 version_added: "2.1.1"
