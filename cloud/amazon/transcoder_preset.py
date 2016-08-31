@@ -20,11 +20,14 @@ module: transcoder_preset
 short_description: Manage AWS ElasticTranscoder presets
 version_added: "2.1.1"
 description:
-  - Create or delete ElasticTranscoder Presets. Preset will be created only if one with the specified name does not exist.
-    If recreate option is set to true, the existing preset will be deleted first, and then created again.
+  - Create or delete ElasticTranscoder Presets. Preset will be created only if one with the specified name does not exist in AWS.
+    If recreate option is set to True, the existing preset will be deleted first, and then created again.
 
-    Please note, preset names are not unique in AWS, but their Id-s are. This module is using using the preset names to manage them in AWS, and maintain their uniqness.
-    Arguably, the preset names are easier for humans (read developers) to refer to, especialy when one needs to work with the same presets accross different AWS accounts.
+    Please note, preset names are not unique in AWS, but their Ids are. The preset names is used as
+    a unique identifier by the module to manage presets in AWS.
+
+    Arguably, the preset names are easier for humans to refer to,
+    especialy when one needs to work with the same presets accross different AWS accounts.
 
     For more detils see U(http://docs.aws.amazon.com/elastictranscoder/latest/developerguide/working-with-presets.html)
 
@@ -33,38 +36,38 @@ requirements:
   - "boto3 >= 1.3.0"
   - "json >= 2.0.9"
 options:
-    name:
-        description:
-            - Name of the preset.
-        required: False
+  name:
     description:
-        description:
-            - Description of the preset.
-        required: False
-    state:
-        description:
-            - Create or delete the preset
-        required: false
-        choices: ['present', 'absent']
-        default: 'present'
-    recreate:
-        description
-            - If set to true and state equals to present, recreate the preset by deleting it first.
-              Unfortunately, presets could not be updated in AWS.
-        required: False
-        choices: [true, false]
-        default: false
-    container:
-        description:
-            - The  container  type  for  the output file
-        choices: ['flac', 'flv', 'fmp4', 'gif', 'mp3', 'mp4', 'mpg', 'mxf', 'oga', 'ogg', 'ts', 'webm']
-        required: true
-        default: None
-    preset_document:
-        description:
-            - Path to a json document that defines the preset template. The templace could have video, audio and/or thumbnails sections.
-        required: False
-        default: None
+      - Name of the preset.
+    required: false
+  description:
+    description:
+      - Description of the preset.
+    required: false
+  state:
+    description:
+      - Create or delete the preset
+    required: false
+    choices: ['present', 'absent']
+    default: 'present'
+  recreate:
+    description:
+      - If set to true and state equals to present, recreate the preset by deleting it first.
+        Presets could not be updated in AWS.
+    required: false
+    choices: [true, false]
+    default: false
+  container:
+    description:
+      - The  container  type  for  the output file
+    choices: ['flac', 'flv', 'fmp4', 'gif', 'mp3', 'mp4', 'mpg', 'mxf', 'oga', 'ogg', 'ts', 'webm']
+    required: true
+    default: None
+  preset_document:
+    description:
+      - Path to a json document that defines the preset template. The templace could have video, audio and/or thumbnails sections.
+    required: False
+    default: None
 
 '''
 
@@ -159,7 +162,7 @@ def delete_preset_by_id(client, preset_name, preset_id):
 
     try:
         client.delete_preset(Id=preset_id)
-    except botocore.exceptions.ClientError, e:
+    except botocore.exceptions.ClientError as e:
         module.fail_json(msg="Failed to delete preset {0}/{1}: {2}".format(preset_name, preset_id, str(e)))
 
 
@@ -214,7 +217,7 @@ def create_preset(client, module):
         try:
             with open(spec_path) as f:
                 PresetTemplate = json.load(f)
-        except IOError, e:
+        except IOError as e:
             module.fail_json(msg = "Can't open video_template file - " + str(e))
 
     if 'Video' in PresetTemplate:
@@ -237,7 +240,7 @@ def create_preset(client, module):
             result['name'] = create_result['Preset']['Name']
             result['id'] = create_result['Preset']['Id']
             result['arn'] = create_result['Preset']['Arn']
-        except botocore.exceptions.ClientError, e:
+        except botocore.exceptions.ClientError as e:
             module.fail_json(msg="Invalid preset settings: " + str(e))
 
     result['msg'] = 'Preset created successfully'
@@ -272,7 +275,7 @@ def delete_preset(client, module):
         if not module.check_mode:
             try:
                 client.delete_preset(Id=PresetId)
-            except botocore.exceptions.ClientError, e:
+            except botocore.exceptions.ClientErro as e:
                 module.fail_json(msg="Failed to delete preset {0}: {1}".format(PresetName,  e))
 
     else:
@@ -326,7 +329,7 @@ def main():
     try:
         region, ec2_url, aws_connect_kwargs = get_aws_connection_info(module, boto3=True)
         transcoder = boto3_conn(module, conn_type='client', resource='elastictranscoder', region=region, endpoint=ec2_url, **aws_connect_kwargs)
-    except boto.exception.NoAuthHandlerFound, e:
+    except boto.exception.NoAuthHandlerFound as e:
         module.fail_json(msg="Can't authorize connection - "+str(e))
 
     invocations = {
