@@ -18,7 +18,7 @@ DOCUMENTATION = '''
 ---
 module: transcoder_preset
 short_description: Manage AWS ElasticTranscoder presets
-version_added: "2.1.1"
+version_added: "2.2"
 description:
   - Create or delete ElasticTranscoder Presets. Preset will be created only if one with the specified name does not exist in AWS.
     If recreate option is set to True, the existing preset will be deleted first, and then created again.
