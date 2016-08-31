@@ -16,7 +16,7 @@
 
 DOCUMENTATION = '''
 module: transcoder_preset
-short_description: Create, or delete AWS ElasticTranscoder Preset
+short_description: Manage AWS ElasticTranscoder presets
 version_added: "2.1.1"
 description:
   - Create or delete ElasticTranscoder Presets. Preset will be created only if one with the specified name does not exist.
@@ -59,11 +59,12 @@ options:
         choices: ['flac', 'flv', 'fmp4', 'gif', 'mp3', 'mp4', 'mpg', 'mxf', 'oga', 'ogg', 'ts', 'webm']
         required: true
         default: None
-    preset_template:
+    preset_document:
         description:
-            - Path to json file that defines the preset template. The templace could have video, audio and/or thumbnails sections.
+            - Path to a json document that defines the preset template. The templace could have video, audio and/or thumbnails sections.
         required: False
         default: None
+
 '''
 
 EXAMPLES = '''
@@ -73,19 +74,19 @@ EXAMPLES = '''
     name: "test_300_sd_video"
     description: "Preset test"
     container: "mp4"
-    preset_template: "roles/cloudformation/files/example_preset_video.json"
+    preset_document: "roles/cloudformation/files/example_preset_video.json"
 
 - name: Recreate Preset
   transcoder_preset:
-    name: "test_preset"
+    name: "test_300_sd_video"
     description: "Preset test"
     container: "mp4"
     recreate: true
-    preset_template: "roles/cloudformation/files/example_preset_video.json"
+    preset_document: "roles/cloudformation/files/example_preset_video.json"
 
 - name: Delete Preset
   transcoder_preset:
-    name: "test_preset"
+    name: "test_300_sd_video"
     state: absent
 
     Where the template's JSON format is:
@@ -131,38 +132,26 @@ except ImportError:
     HAS_BOTO3 = False
 
 
-def cache_aws_presets(client):
+def get_preset_id(client, preset_name):
 
     paginator = client.get_paginator('list_presets')
 
     operation_parameters = {'Ascending': 'true'}
-
-    awsPresets = {}
 
     page_iterator = paginator.paginate(**operation_parameters)
     for page in page_iterator:
         next_token = page.get('NextPageToken', None)
         if 'Presets' in page.keys():
             for preset in page['Presets']:
-                if not preset['Name'].startswith("System preset"):
-                    awsPresets[preset['Name']] = { 'Id': preset['Id'], 'Arn': preset['Arn']}
+                if preset['Name'] == preset_name:
+                    return preset['Id'], preset['Arn']
 
         if next_token is None:
             break
         else:
             operation_parameters['PageToken'] = next_token
 
-    return awsPresets
-
-def get_preset_id(client, preset_name):
-
-    awsPresets = cache_aws_presets(client)
-
-    for name in awsPresets.keys():
-        if name == preset_name:
-            return awsPresets[name]
-
-    return {'Id': None, 'Arn': None }
+    return None, None
 
 
 def delete_preset_by_id(client, preset_name, preset_id):
@@ -176,13 +165,16 @@ def delete_preset_by_id(client, preset_name, preset_id):
 def create_preset(client, module):
 
     params = dict()
+    PresetName = None
+    PresetId = None
+    PresetArn = None
     result = {'name': '',
               'id': '',
               'arn': '',
               'msg': ''}
 
     if module.params.get('name'):
-        params['Name'] = module.params.get('name')
+        PresetName = params['Name'] = module.params.get('name')
     else:
         module.fail_json(msg="Missing required argument: name")
 
@@ -190,17 +182,19 @@ def create_preset(client, module):
     if module.params.get('recreate'):
         recreate = module.params.get('recreate')
 
-    preset = get_preset_id(client, params['Name'])
+    PresetId, PresetArn = get_preset_id(client, PresetName)
 
-    if (preset['Id'] and not recreate):
-        result['name'] = params['Name']
-        result['id'] = preset['Id']
-        result['arn'] = preset['Arn']
+    if (PresetId
+        and not recreate):
+        result['name'] = PresetName
+        result['id'] = PresetId
+        result['arn'] = PresetArn
         result['msg'] = "Preset already exists"
         return result
 
-    if preset['Id'] and recreate:
-        delete_preset_by_id(client, params['Name'], preset['Id'])
+    if (PresetId
+        and recreate):
+        delete_preset_by_id(client, PresetName, PresetId)
 
     if module.params.get('description'):
         params['Description'] = module.params.get('description')
@@ -211,10 +205,10 @@ def create_preset(client, module):
         module.fail_json(msg = "Missing required argument: container")
 
     PresetTemplate = {}
-    if module.params.get('preset_template'):
-        spec_path = module.params.get('preset_template')
+    if module.params.get('preset_document'):
+        spec_path = module.params.get('preset_document')
         if not os.path.isfile(spec_path):
-            module.fail_json(msg = "Wrong path for preset_template: {0}".format(spec_path))
+            module.fail_json(msg = "Wrong path for preset_document: {0}".format(spec_path))
 
         try:
             with open(spec_path) as f:
@@ -236,14 +230,15 @@ def create_preset(client, module):
         len(params['Thumbnails']) == 0):
         module.fail_json(msg="No specs provided for Video, Audio, or Thumbnails. ")
 
-    try:
-        create_result = client.create_preset(**params)
-    except botocore.exceptions.ClientError, e:
-        module.fail_json(msg="Invalid preset settings: " + str(e))
+    if not module.check_mode:
+        try:
+            create_result = client.create_preset(**params)
+            result['name'] = create_result['Preset']['Name']
+            result['id'] = create_result['Preset']['Id']
+            result['arn'] = create_result['Preset']['Arn']
+        except botocore.exceptions.ClientError, e:
+            module.fail_json(msg="Invalid preset settings: " + str(e))
 
-    result['name'] = create_result['Preset']['Name']
-    result['id'] = create_result['Preset']['Id']
-    result['arn'] = create_result['Preset']['Arn']
     result['msg'] = 'Preset created successfully'
     result['changed'] = 'true'
 
@@ -251,29 +246,40 @@ def create_preset(client, module):
 
 def delete_preset(client, module):
     params = dict()
+    PresetName = None
+    PresetId = None
+    PresetArn = None
     result = {'name':'',
             'id': '',
             'arn': '',
             'msg':''}
 
     if module.params.get('name'):
-        params['Name'] = module.params.get('name')
+        PresetName = params['Name'] = module.params.get('name')
     else:
         module.fail_json(msg="Missing required argument: name")
 
-    preset = get_preset_id(client, params['Name'])
+    PresetId, PresetArn = get_preset_id(client, PresetName)
 
-    if preset['Id']:
-        try:
-            client.delete_preset(Id=preset['Id'])
-        except botocore.exceptions.ClientError, e:
-            module.fail_json(msg="Failed to delete preset {0}: {1}".format(params['Name'],  e))
-
-    result['name']  = params['Name']
-    result['id'] = preset['Id']
-    result['arn'] = preset['Arn']
     result['msg'] = 'Preset deleted successfully'
     result['changed'] = 'true'
+
+    if PresetId:
+        result['id'] = PresetId
+        result['arn'] = PresetArn
+
+        if not module.check_mode:
+            try:
+                client.delete_preset(Id=PresetId)
+            except botocore.exceptions.ClientError, e:
+                module.fail_json(msg="Failed to delete preset {0}: {1}".format(PresetName,  e))
+
+    else:
+        if not module.check_mode:
+            result['msg'] = 'Preset not found'
+            result['changed'] = 'false'
+
+    result['name'] = PresetName
 
     return result
 
@@ -306,7 +312,7 @@ def main():
             type='bool',
             default=False,
             choices=[True, False]),
-        preset_template = dict(type='str')
+        preset_document = dict(type='str')
         )
     )
 
